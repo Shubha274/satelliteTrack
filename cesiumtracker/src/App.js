@@ -38,7 +38,8 @@ function App() {
   const [intervalId, setIntervalId] = useState(null);
   const [viewer, setViewer] = useState(null);
   const [satEntity, setSatEntity] = useState(null);
-
+  const [pastTrackEntity, setPastTrackEntity] = useState(null);
+  const [futureTrackEntity, setFutureTrackEntity] = useState(null);
   //Create Cesium Viewer once
   useEffect(() => {
     // const cesiumViewer = new Cesium.Viewer("cesiumContainer", {
@@ -87,7 +88,6 @@ function App() {
   //     cesiumViewer.destroy();
   //   };
   // }, []);
-
   const startTracking = () => {
     if (!viewer) {
       alert("Cesium Viewer not ready");
@@ -99,11 +99,16 @@ function App() {
       return;
     }
 
-    const satrec = satellite.twoline2satrec(tle1, tle2);
-    let entity = satEntity;
+    // Cleanup previous run
+    if (intervalId) clearInterval(intervalId);
+    if (pastTrackEntity) viewer.entities.remove(pastTrackEntity);
+    if (futureTrackEntity) viewer.entities.remove(futureTrackEntity);
+    if (satEntity) viewer.entities.remove(satEntity);
+
+    const satrec = satellite.twoline2satrec(tle1.trim(), tle2.trim());
     const now = new Date();
 
-    // Past and future tracks
+    // Generate tracks
     const pastTrack = generateGroundTrack(
       satrec,
       new Date(now.getTime() - 45 * 60 * 1000),
@@ -111,49 +116,48 @@ function App() {
     );
 
     const futureTrack = generateGroundTrack(satrec, now, 45);
-    viewer.entities.add({
+
+    const pastEntity = viewer.entities.add({
       polyline: {
         positions: pastTrack,
         width: 2,
-        material: new Cesium.ColorMaterialProperty(
-          Cesium.Color.RED.withAlpha(0.7),
-        ),
+        material: Cesium.Color.RED.withAlpha(0.7),
         clampToGround: true,
       },
     });
 
-    viewer.entities.add({
+    const futureEntity = viewer.entities.add({
       polyline: {
         positions: futureTrack,
         width: 2,
-        material: new Cesium.ColorMaterialProperty(
-          Cesium.Color.RED.withAlpha(0.7),
-        ),
+        material: Cesium.Color.RED.withAlpha(0.7),
         clampToGround: true,
       },
     });
 
-    if (!entity) {
-      entity = viewer.entities.add({
-        billboard: {
-          image: "/earth.jpg", // put satellite.png in public/
-          scale: 0.6,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-        },
-      });
+    setPastTrackEntity(pastEntity);
+    setFutureTrackEntity(futureEntity);
 
-      setSatEntity(entity);
-      viewer.trackedEntity = entity;
-    }
+    // Satellite icon
+    const entity = viewer.entities.add({
+      billboard: {
+        image: "/satellites.png",
+        scale: 0.6,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    });
 
-    if (intervalId) clearInterval(intervalId);
+    setSatEntity(entity);
+    viewer.trackedEntity = entity;
 
+    // Live propagation
     const id = setInterval(() => {
-      const now = new Date();
-      const pv = satellite.propagate(satrec, now);
+      const time = new Date();
+      const pv = satellite.propagate(satrec, time);
       if (!pv.position) return;
 
-      const gmst = satellite.gstime(now);
+      const gmst = satellite.gstime(time);
       const geo = satellite.eciToGeodetic(pv.position, gmst);
 
       entity.position = Cesium.Cartesian3.fromDegrees(
@@ -161,12 +165,112 @@ function App() {
         satellite.degreesLat(geo.latitude),
         geo.height * 1000,
       );
-
-      entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
     }, 1000);
 
     setIntervalId(id);
   };
+
+  // const startTracking = () => {
+  //   if (!viewer) {
+  //     alert("Cesium Viewer not ready");
+  //     return;
+  //   }
+
+  //   if (!tle1 || !tle2) {
+  //     alert("Please enter both TLE lines");
+  //     return;
+  //   }
+
+  //   const satrec = satellite.twoline2satrec(tle1, tle2);
+  //   let entity = satEntity;
+  //   const now = new Date();
+
+  //   // Past and future tracks
+  //   const pastTrack = generateGroundTrack(
+  //     satrec,
+  //     new Date(now.getTime() - 45 * 60 * 1000),
+  //     45,
+  //   );
+
+  //   const futureTrack = generateGroundTrack(satrec, now, 45);
+  //   viewer.entities.add({
+  //     polyline: {
+  //       positions: pastTrack,
+  //       width: 2,
+  //       material: new Cesium.ColorMaterialProperty(
+  //         Cesium.Color.RED.withAlpha(0.7),
+  //       ),
+  //       clampToGround: true,
+  //     },
+  //   });
+
+  //   // viewer.entities.add({
+  //   //   polyline: {
+  //   //     positions: futureTrack,
+  //   //     width: 2,
+  //   //     material: new Cesium.ColorMaterialProperty(
+  //   //       Cesium.Color.RED.withAlpha(0.7),
+  //   //     ),
+  //   //     clampToGround: true,
+  //   //   },
+  //   // });
+  //   const pastEntity = viewer.entities.add({
+  //     polyline: {
+  //       positions: pastTrack,
+  //       width: 2,
+  //       material: Cesium.Color.RED.withAlpha(0.7),
+  //       clampToGround: true,
+  //     },
+  //   });
+
+  //   const futureEntity = viewer.entities.add({
+  //     polyline: {
+  //       positions: futureTrack,
+  //       width: 2,
+  //       material: Cesium.Color.RED.withAlpha(0.7),
+  //       clampToGround: true,
+  //     },
+  //   });
+
+  //   setPastTrackEntity(pastEntity);
+  //   setFutureTrackEntity(futureEntity);
+
+  //   if (!entity) {
+  //     entity = viewer.entities.add({
+  //       billboard: {
+  //         image: "/satellites.png", // put satellite.png in public/
+  //         scale: 0.6,
+  //         verticalOrigin: Cesium.VerticalOrigin.CENTER,
+  //       },
+  //     });
+
+  //     setSatEntity(entity);
+  //     viewer.trackedEntity = entity;
+  //   }
+  //   // Remove previous tracks
+  //   if (pastTrackEntity) viewer.entities.remove(pastTrackEntity);
+  //   if (futureTrackEntity) viewer.entities.remove(futureTrackEntity);
+  //   if (intervalId) clearInterval(intervalId);
+
+  //   const id = setInterval(() => {
+  //     const now = new Date();
+  //     const pv = satellite.propagate(satrec, now);
+  //     if (!pv.position) return;
+
+  //     const gmst = satellite.gstime(now);
+  //     const geo = satellite.eciToGeodetic(pv.position, gmst);
+
+  //     entity.position = Cesium.Cartesian3.fromDegrees(
+  //       satellite.degreesLong(geo.longitude),
+  //       satellite.degreesLat(geo.latitude),
+  //       geo.height * 1000,
+  //     );
+
+  //     entity.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY;
+  //   }, 1000);
+
+  //   setIntervalId(id);
+  // };
 
   return (
     <>
