@@ -8,28 +8,56 @@ Cesium.Ion.defaultAccessToken =
 
 console.log("Cesium token:", Cesium.Ion.defaultAccessToken);
 // Helper function to generate ground track
-function generateGroundTrack(satrec, startTime, minutes, stepSeconds = 30) {
-  const positions = [];
+// function generateGroundTrack(satrec, startTime, minutes, stepSeconds = 30) {
+//   const positions = [];
+
+//   for (let i = 0; i <= minutes * 60; i += stepSeconds) {
+//     const time = new Date(startTime.getTime() + i * 1000);
+
+//     const pv = satellite.propagate(satrec, time);
+//     if (!pv.position) continue;
+
+//     const gmst = satellite.gstime(time);
+//     const geo = satellite.eciToGeodetic(pv.position, gmst);
+
+//     positions.push(
+//       Cesium.Cartesian3.fromDegrees(
+//         satellite.degreesLong(geo.longitude),
+//         satellite.degreesLat(geo.latitude),
+//         0,
+//       ),
+//     );
+//   }
+
+//   return positions;
+// }
+function generateOrbitSamples(satrec, startTime, minutes, stepSeconds = 10) {
+  const property = new Cesium.SampledPositionProperty();
+  const startJulian = Cesium.JulianDate.fromDate(startTime);
 
   for (let i = 0; i <= minutes * 60; i += stepSeconds) {
-    const time = new Date(startTime.getTime() + i * 1000);
+    const time = Cesium.JulianDate.addSeconds(
+      startJulian,
+      i,
+      new Cesium.JulianDate(),
+    );
 
-    const pv = satellite.propagate(satrec, time);
+    const pv = satellite.propagate(satrec, Cesium.JulianDate.toDate(time));
     if (!pv.position) continue;
 
-    const gmst = satellite.gstime(time);
+    const gmst = satellite.gstime(Cesium.JulianDate.toDate(time));
     const geo = satellite.eciToGeodetic(pv.position, gmst);
 
-    positions.push(
-      Cesium.Cartesian3.fromDegrees(
-        satellite.degreesLong(geo.longitude),
-        satellite.degreesLat(geo.latitude),
-        0,
-      ),
+    const position = Cesium.Cartesian3.fromDegrees(
+      satellite.degreesLong(geo.longitude),
+      satellite.degreesLat(geo.latitude),
+      geo.height * 1000, // 🔥 SAME altitude
     );
+
+    property.addSample(time, position);
   }
 
-  return positions;
+  return property;
 }
 
 function App() {
@@ -62,86 +90,144 @@ function App() {
     };
   }, []);
 
+  // const startTracking = () => {
+  //   if (!viewer) {
+  //     alert("Cesium Viewer not ready");
+  //     return;
+  //   }
+
+  //   if (!tle1 || !tle2) {
+  //     alert("Please enter both TLE lines");
+  //     return;
+  //   }
+
+  //   // Cleanup previous run
+  //   if (intervalId) clearInterval(intervalId);
+  //   if (pastTrackEntity) viewer.entities.remove(pastTrackEntity);
+  //   if (futureTrackEntity) viewer.entities.remove(futureTrackEntity);
+  //   if (satEntity) viewer.entities.remove(satEntity);
+
+  //   const satrec = satellite.twoline2satrec(tle1.trim(), tle2.trim());
+  //   const now = new Date();
+
+  //   // Generate tracks
+  //   const pastTrack = generateGroundTrack(
+  //     satrec,
+  //     new Date(now.getTime() - 45 * 60 * 1000),
+  //     45,
+  //   );
+
+  //   const futureTrack = generateGroundTrack(satrec, now, 45);
+
+  //   const pastEntity = viewer.entities.add({
+  //     polyline: {
+  //       positions: pastTrack,
+  //       width: 2,
+  //       material: Cesium.Color.RED.withAlpha(0.7),
+  //       clampToGround: true,
+  //     },
+  //   });
+
+  //   const futureEntity = viewer.entities.add({
+  //     polyline: {
+  //       positions: futureTrack,
+  //       width: 2,
+  //       material: Cesium.Color.RED.withAlpha(0.7),
+  //       clampToGround: true,
+  //     },
+  //   });
+
+  //   setPastTrackEntity(pastEntity);
+  //   setFutureTrackEntity(futureEntity);
+
+  //   // Satellite icon
+  //   const entity = viewer.entities.add({
+  //     billboard: {
+  //       image: "/satellites.png",
+  //       scale: 0.6,
+  //       verticalOrigin: Cesium.VerticalOrigin.CENTER,
+  //       disableDepthTestDistance: Number.POSITIVE_INFINITY,
+  //     },
+  //   });
+
+  //   setSatEntity(entity);
+  //   viewer.trackedEntity = entity;
+
+  //   // Live propagation
+  //   const id = setInterval(() => {
+  //     const time = new Date();
+  //     const pv = satellite.propagate(satrec, time);
+  //     if (!pv.position) return;
+
+  //     const gmst = satellite.gstime(time);
+  //     const geo = satellite.eciToGeodetic(pv.position, gmst);
+
+  //     entity.position = Cesium.Cartesian3.fromDegrees(
+  //       satellite.degreesLong(geo.longitude),
+  //       satellite.degreesLat(geo.latitude),
+  //       geo.height * 1000,
+  //     );
+  //   }, 1000);
+
+  //   setIntervalId(id);
+  // };
   const startTracking = () => {
-    if (!viewer) {
-      alert("Cesium Viewer not ready");
-      return;
-    }
+    if (!viewer) return alert("Cesium Viewer not ready");
+    if (!tle1 || !tle2) return alert("Please enter both TLE lines");
 
-    if (!tle1 || !tle2) {
-      alert("Please enter both TLE lines");
-      return;
-    }
-
-    // Cleanup previous run
-    if (intervalId) clearInterval(intervalId);
-    if (pastTrackEntity) viewer.entities.remove(pastTrackEntity);
-    if (futureTrackEntity) viewer.entities.remove(futureTrackEntity);
-    if (satEntity) viewer.entities.remove(satEntity);
+    // Cleanup
+    viewer.entities.removeAll();
 
     const satrec = satellite.twoline2satrec(tle1.trim(), tle2.trim());
-    const now = new Date();
 
-    // Generate tracks
-    const pastTrack = generateGroundTrack(
-      satrec,
-      new Date(now.getTime() - 45 * 60 * 1000),
-      45,
-    );
+    const startTime = new Date();
+    const stopTime = new Date(startTime.getTime() + 90 * 60 * 1000);
 
-    const futureTrack = generateGroundTrack(satrec, now, 45);
+    viewer.clock.startTime = Cesium.JulianDate.fromDate(startTime);
+    viewer.clock.stopTime = Cesium.JulianDate.fromDate(stopTime);
+    viewer.clock.currentTime = Cesium.JulianDate.fromDate(startTime);
+    viewer.clock.clockRange = Cesium.ClockRange.LOOP_STOP;
+    viewer.clock.multiplier = 1;
 
-    const pastEntity = viewer.entities.add({
+    const orbitPosition = generateOrbitSamples(satrec, startTime, 90);
+
+    // 🔴 Orbit polyline (USES SAME POSITION SOURCE)
+    // viewer.entities.add({
+    //   polyline: {
+    //     positions: new Cesium.CallbackProperty(() => {
+    //       return orbitPosition._property._values;
+    //     }, false),
+    //     width: 2,
+    //     material: Cesium.Color.RED.withAlpha(0.7),
+    //   },
+    // });
+    viewer.entities.add({
       polyline: {
-        positions: pastTrack,
+        positions: new Cesium.CallbackProperty((time) => {
+          const positions = [];
+          orbitPosition._property._times.forEach((t) => {
+            const p = orbitPosition.getValue(t);
+            if (p) positions.push(p);
+          });
+          return positions; // ✅ Cartesian3[]
+        }, false),
         width: 2,
         material: Cesium.Color.RED.withAlpha(0.7),
-        clampToGround: true,
       },
     });
 
-    const futureEntity = viewer.entities.add({
-      polyline: {
-        positions: futureTrack,
-        width: 2,
-        material: Cesium.Color.RED.withAlpha(0.7),
-        clampToGround: true,
-      },
-    });
-
-    setPastTrackEntity(pastEntity);
-    setFutureTrackEntity(futureEntity);
-
-    // Satellite icon
-    const entity = viewer.entities.add({
+    // 🛰️ Satellite entity (MOVES ON SAME PATH)
+    const satelliteEntity = viewer.entities.add({
+      position: orbitPosition,
       billboard: {
         image: "/satellites.png",
         scale: 0.6,
-        verticalOrigin: Cesium.VerticalOrigin.CENTER,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
+      orientation: new Cesium.VelocityOrientationProperty(orbitPosition),
     });
 
-    setSatEntity(entity);
-    viewer.trackedEntity = entity;
-
-    // Live propagation
-    const id = setInterval(() => {
-      const time = new Date();
-      const pv = satellite.propagate(satrec, time);
-      if (!pv.position) return;
-
-      const gmst = satellite.gstime(time);
-      const geo = satellite.eciToGeodetic(pv.position, gmst);
-
-      entity.position = Cesium.Cartesian3.fromDegrees(
-        satellite.degreesLong(geo.longitude),
-        satellite.degreesLat(geo.latitude),
-        geo.height * 1000,
-      );
-    }, 1000);
-
-    setIntervalId(id);
+    viewer.trackedEntity = satelliteEntity;
   };
 
   // return (
